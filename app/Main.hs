@@ -29,6 +29,9 @@ responseOk = "HTTP/1.1 200 Ok\r\n\r\n"
 responseNotFound :: ByteString
 responseNotFound = "HTTP/1.1 404 Not Found\r\n\r\n"
 
+responseCreated :: ByteString
+responseCreated = "HTTP/1.1 201 Created\r\n\r\n"
+
 responseWithBody :: ByteString -> ByteString -> ByteString
 responseWithBody contentType body =
     "HTTP/1.1 200 OK\r\nContent-Type: "
@@ -45,12 +48,13 @@ routes req
     | "/user-agent" == path = pure $ userAgentRoute req
     | "/echo/" `BC.isPrefixOf` path = pure $ echoRoute path
     | "GET" == method && "/files/" `BC.isPrefixOf` path = getFilesRoute path
-    | "POST" == method && "/files/" `BC.isPrefixOf` path = postFilesRoute req
+    | "POST" == method && "/files/" `BC.isPrefixOf` path = postFilesRoute path body
     | otherwise = pure responseNotFound
   where
     headers = parseHeader req
     method = head headers
     path = headers !! 1
+    body = parseBody req
 
 handleClient :: Socket -> IO ()
 handleClient clientSocket = do
@@ -77,10 +81,7 @@ echoRoute path =
 
 getFilesRoute :: ByteString -> IO ByteString
 getFilesRoute path = do
-    directory <- getDirectory
-    let filename = BC.unpack $ BC.drop 7 path
-    let filepath = directory ++ filename
-
+    filepath <- getFilePath path
     fileExists <- doesFileExist filepath
     if fileExists
         then do
@@ -89,10 +90,17 @@ getFilesRoute path = do
         else do
             pure responseNotFound
 
-postFilesRoute :: ByteString -> IO ByteString
-postFilesRoute req = do
-    let body = parseBody req
-    return $ responseWithBody "text/plain" body
+postFilesRoute :: ByteString -> ByteString -> IO ByteString
+postFilesRoute path body = do
+    filepath <- getFilePath path
+    BC.writeFile filepath body
+    return responseCreated
+
+getFilePath :: ByteString -> IO String
+getFilePath path = do
+    directory <- getDirectory
+    let filename = BC.unpack $ BC.drop 7 path
+    return $ directory ++ filename
 
 getDirectory :: IO String
 getDirectory = do
