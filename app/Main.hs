@@ -15,8 +15,13 @@ import Control.Concurrent
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 
-parsePath :: ByteString -> ByteString
-parsePath = (!! 1) . BC.words . head . BC.lines
+parseHeader :: ByteString -> [ByteString]
+parseHeader = BC.words . head . BC.lines
+
+parseBody :: ByteString -> ByteString
+parseBody req =
+    let (_, s) = break (BC.isPrefixOf "\r\n\r\n") (BC.tails req)
+     in if null s then "" else BC.drop 4 (head s)
 
 responseOk :: ByteString
 responseOk = "HTTP/1.1 200 Ok\r\n\r\n"
@@ -39,15 +44,21 @@ routes req
     | "/" == path = pure responseOk
     | "/user-agent" == path = pure $ userAgentRoute req
     | "/echo/" `BC.isPrefixOf` path = pure $ echoRoute path
-    | "/files/" `BC.isPrefixOf` path = filesRoute path
+    | "GET" == method && "/files/" `BC.isPrefixOf` path = getFilesRoute path
+    | "POST" == method && "/files/" `BC.isPrefixOf` path = postFilesRoute req
     | otherwise = pure responseNotFound
   where
-    path = parsePath req
+    headers = parseHeader req
+    method = head headers
+    path = headers !! 1
 
 handleClient :: Socket -> IO ()
 handleClient clientSocket = do
     req <- recv clientSocket 4096
     res <- routes req
+    putStrLn ""
+    print req
+    putStrLn ""
     sendAll clientSocket res
     close clientSocket
 
@@ -64,8 +75,8 @@ echoRoute path =
     let abc = BC.drop 6 path
      in responseWithBody "text/plain" abc
 
-filesRoute :: ByteString -> IO ByteString
-filesRoute path = do
+getFilesRoute :: ByteString -> IO ByteString
+getFilesRoute path = do
     directory <- getDirectory
     let filename = BC.unpack $ BC.drop 7 path
     let filepath = directory ++ filename
@@ -77,6 +88,11 @@ filesRoute path = do
             pure $ responseWithBody "application/octet-stream" $ BC.pack contents
         else do
             pure responseNotFound
+
+postFilesRoute :: ByteString -> IO ByteString
+postFilesRoute req = do
+    let body = parseBody req
+    return $ responseWithBody "text/plain" body
 
 getDirectory :: IO String
 getDirectory = do
