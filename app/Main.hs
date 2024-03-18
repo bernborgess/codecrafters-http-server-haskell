@@ -12,47 +12,78 @@ import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 import Control.Concurrent
 
+import System.Directory (doesFileExist)
+import System.Environment (getArgs)
+
 parsePath :: ByteString -> ByteString
 parsePath = (!! 1) . BC.words . head . BC.lines
+
+responseOk :: ByteString
+responseOk = "HTTP/1.1 200 Ok\r\n\r\n"
 
 responseNotFound :: ByteString
 responseNotFound = "HTTP/1.1 404 Not Found\r\n\r\n"
 
-responseWithBody :: ByteString -> ByteString
-responseWithBody body =
-    "HTTP/1.1 200 OK\r\n\
-    \Content-Type: text/plain\r\n\
-    \Content-Length: "
+responseWithBody :: ByteString -> ByteString -> ByteString
+responseWithBody contentType body =
+    "HTTP/1.1 200 OK\r\nContent-Type: "
+        <> contentType
+        <> "\r\nContent-Length: "
         <> BC.pack (show $ BC.length body)
         <> "\r\n\r\n"
         <> body
         <> "\r\n\r\n"
 
+routes :: ByteString -> IO ByteString
+routes req
+    | "/" == path = pure responseOk
+    | "/user-agent" == path = pure $ userAgentRoute req
+    | "/echo/" `BC.isPrefixOf` path = pure $ echoRoute path
+    | "/files/" `BC.isPrefixOf` path = filesRoute path
+    | otherwise = pure responseNotFound
+  where
+    path = parsePath req
+
 handleClient :: Socket -> IO ()
 handleClient clientSocket = do
     req <- recv clientSocket 4096
-    let path = parsePath req
-    print $ BC.lines req
-    let res
-            | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
-            | path == "/user-agent" = userAgentRoute req
-            | BC.isPrefixOf "/echo/" path = echoRoute path
-            | otherwise = responseNotFound
+    res <- routes req
     sendAll clientSocket res
     close clientSocket
-
-echoRoute :: ByteString -> ByteString
-echoRoute path =
-    let abc = BC.drop 6 path
-     in responseWithBody abc
 
 userAgentRoute :: ByteString -> ByteString
 userAgentRoute req =
     let
-        ll = map BC.init $ BC.lines req
-        mu = find (BC.isPrefixOf "User-Agent:") ll
+        requestParams = map BC.init $ BC.lines req
+        maybeUserAgent = find (BC.isPrefixOf "User-Agent:") requestParams
      in
-        maybe responseNotFound (responseWithBody . BC.drop 12) mu
+        maybe responseNotFound (responseWithBody "text/plain" . BC.drop 12) maybeUserAgent
+
+echoRoute :: ByteString -> ByteString
+echoRoute path =
+    let abc = BC.drop 6 path
+     in responseWithBody "text/plain" abc
+
+filesRoute :: ByteString -> IO ByteString
+filesRoute path = do
+    directory <- getDirectory
+    let filename = BC.unpack $ BC.drop 7 path
+    let filepath = directory ++ filename
+
+    fileExists <- doesFileExist filepath
+    if fileExists
+        then do
+            contents <- readFile filepath
+            pure $ responseWithBody "application/octet-stream" $ BC.pack contents
+        else do
+            pure responseNotFound
+
+getDirectory :: IO String
+getDirectory = do
+    args <- getArgs
+    case args of
+        [_, dir] -> return dir
+        _ -> return "files/"
 
 main :: IO ()
 main = do
