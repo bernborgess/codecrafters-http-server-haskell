@@ -10,6 +10,8 @@ import Network.Socket
 import Network.Socket.ByteString
 import System.IO (BufferMode (..), hSetBuffering, stdout)
 
+import Control.Concurrent
+
 parsePath :: ByteString -> ByteString
 parsePath = (!! 1) . BC.words . head . BC.lines
 
@@ -25,6 +27,32 @@ responseWithBody body =
         <> "\r\n\r\n"
         <> body
         <> "\r\n\r\n"
+
+handleClient :: Socket -> IO ()
+handleClient clientSocket = do
+    req <- recv clientSocket 4096
+    let path = parsePath req
+    print $ BC.lines req
+    let res
+            | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
+            | path == "/user-agent" = userAgentRoute req
+            | BC.isPrefixOf "/echo/" path = echoRoute path
+            | otherwise = responseNotFound
+    sendAll clientSocket res
+    close clientSocket
+
+echoRoute :: ByteString -> ByteString
+echoRoute path =
+    let abc = BC.drop 6 path
+     in responseWithBody abc
+
+userAgentRoute :: ByteString -> ByteString
+userAgentRoute req =
+    let
+        ll = map BC.init $ BC.lines req
+        mu = find (BC.isPrefixOf "User-Agent:") ll
+     in
+        maybe responseNotFound (responseWithBody . BC.drop 12) mu
 
 main :: IO ()
 main = do
@@ -56,30 +84,4 @@ main = do
         BC.putStrLn $ "Accepted connection from " <> BC.pack (show clientAddr) <> "."
         -- Handle the clientSocket as needed...
 
-        req <- recv clientSocket 4096
-
-        let path = parsePath req
-
-        print $ BC.lines req
-
-        let res
-                | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
-                | path == "/user-agent" = userAgentRoute req
-                | BC.isPrefixOf "/echo/" path = echoRoute path
-                | otherwise = responseNotFound
-
-        sendAll clientSocket res
-        close clientSocket
-
-echoRoute :: ByteString -> ByteString
-echoRoute path =
-    let abc = BC.drop 6 path
-     in responseWithBody abc
-
-userAgentRoute :: ByteString -> ByteString
-userAgentRoute req =
-    let
-        ll = map BC.init $ BC.lines req
-        mu = find (BC.isPrefixOf "User-Agent:") ll
-     in
-        maybe responseNotFound (responseWithBody . BC.drop 12) mu
+        forkIO $ handleClient clientSocket
