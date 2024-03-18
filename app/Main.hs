@@ -5,12 +5,26 @@ module Main (main) where
 import Control.Monad (forever)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
+import Data.List (find)
 import Network.Socket
 import Network.Socket.ByteString
 import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 parsePath :: ByteString -> ByteString
 parsePath = (!! 1) . BC.words . head . BC.lines
+
+responseNotFound :: ByteString
+responseNotFound = "HTTP/1.1 404 Not Found\r\n\r\n"
+
+responseWithBody :: ByteString -> ByteString
+responseWithBody body =
+    "HTTP/1.1 200 OK\r\n\
+    \Content-Type: text/plain\r\n\
+    \Content-Length: "
+        <> BC.pack (show $ BC.length body)
+        <> "\r\n\r\n"
+        <> body
+        <> "\r\n\r\n"
 
 main :: IO ()
 main = do
@@ -46,11 +60,13 @@ main = do
 
         let path = parsePath req
 
+        print $ BC.lines req
+
         let res
                 | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
-                | path == "/user-agent" = userAgentRoute path
+                | path == "/user-agent" = userAgentRoute req
                 | BC.isPrefixOf "/echo/" path = echoRoute path
-                | otherwise = "HTTP/1.1 404 Not Found\r\n\r\n"
+                | otherwise = responseNotFound
 
         sendAll clientSocket res
         close clientSocket
@@ -58,13 +74,12 @@ main = do
 echoRoute :: ByteString -> ByteString
 echoRoute path =
     let abc = BC.drop 6 path
-     in "HTTP/1.1 200 OK\r\n\
-        \Content-Type: text/plain\r\n\
-        \Content-Length: "
-            <> BC.pack (show $ BC.length abc)
-            <> "\r\n\r\n"
-            <> abc
-            <> "\r\n\r\n"
+     in responseWithBody abc
 
 userAgentRoute :: ByteString -> ByteString
-userAgentRoute path = ""
+userAgentRoute req =
+    let
+        ll = map BC.init $ BC.lines req
+        mu = find (BC.isPrefixOf "User-Agent:") ll
+     in
+        maybe responseNotFound (responseWithBody . BC.drop 12) mu
