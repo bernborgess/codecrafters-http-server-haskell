@@ -48,16 +48,23 @@ main = do
 
         let res
                 | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
-                | BC.isPrefixOf "/echo/" path =
-                    let abc = BC.drop 6 path
-                     in "HTTP/1.1 200 OK\r\n\
-                        \Content-Type: text/plain\r\n\
-                        \Content-Length: "
-                            <> BC.pack (show $ BC.length abc)
-                            <> "\r\n\r\n"
-                            <> abc
-                            <> "\r\n\r\n"
+                | path == "/user-agent" = userAgentRoute path
+                | BC.isPrefixOf "/echo/" path = echoRoute path
                 | otherwise = "HTTP/1.1 404 Not Found\r\n\r\n"
 
         sendAll clientSocket res
         close clientSocket
+
+echoRoute :: ByteString -> ByteString
+echoRoute path =
+    let abc = BC.drop 6 path
+     in "HTTP/1.1 200 OK\r\n\
+        \Content-Type: text/plain\r\n\
+        \Content-Length: "
+            <> BC.pack (show $ BC.length abc)
+            <> "\r\n\r\n"
+            <> abc
+            <> "\r\n\r\n"
+
+userAgentRoute :: ByteString -> ByteString
+userAgentRoute path = ""
