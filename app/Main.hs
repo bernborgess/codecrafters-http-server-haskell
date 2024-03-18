@@ -3,10 +3,14 @@
 module Main (main) where
 
 import Control.Monad (forever)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
 import Network.Socket
 import Network.Socket.ByteString
 import System.IO (BufferMode (..), hSetBuffering, stdout)
+
+parsePath :: ByteString -> ByteString
+parsePath = (!! 1) . BC.words . head . BC.lines
 
 main :: IO ()
 main = do
@@ -40,10 +44,20 @@ main = do
 
         req <- recv clientSocket 4096
 
-        let path = (!! 1) $ BC.words $ head $ BC.lines req
+        let path = parsePath req
 
-        if path == "/"
-            then sendAll clientSocket "HTTP/1.1 200 OK\r\n\r\n"
-            else sendAll clientSocket "HTTP/1.1 404 Not Found\r\n\r\n"
+        let res
+                | path == "/" = "HTTP/1.1 200 OK\r\n\r\n"
+                | BC.isPrefixOf "/echo/" path =
+                    let abc = BC.drop 6 path
+                     in "HTTP/1.1 200 OK\r\n\
+                        \Content-Type: text/plain\r\n\
+                        \Content-Length: "
+                            <> BC.pack (show $ BC.length abc)
+                            <> "\r\n\r\n"
+                            <> abc
+                            <> "\r\n\r\n"
+                | otherwise = "HTTP/1.1 404 Not Found\r\n\r\n"
 
+        sendAll clientSocket res
         close clientSocket
